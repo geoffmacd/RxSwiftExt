@@ -14,7 +14,7 @@ extension ObservableType {
     /**
      Pauses the elements of the source observable sequence based on the latest element from the second observable sequence.
 
-     While paused, elements from the source are buffered, limited to a maximum number of element.
+     While paused, elements from the source are buffered, limited to a configurable maximum number of elements.
 
      When resumed, all buffered elements are flushed as single events in a contiguous stream.
 
@@ -92,4 +92,69 @@ extension ObservableType {
         }
     }
 
+    /**
+     Pauses the elements of the source observable sequence based on a predicate of the latest element.
+
+     While paused, elements from the source are buffered, limited to a configurable maximum number of elements.
+
+     When resumed, all buffered elements are flushed as single events in a contiguous stream.
+
+     - seealso: [pausable operator on reactivex.io](http://reactivex.io/documentation/operators/backpressure.html)
+
+     - parameter predicate: Predicate to determine whether to pause. True if pausing is desired.
+     - parameter limit: The maximum number of element buffered. Pass `nil` to buffer all elements without limit. Default 1.
+     - parameter flushOnCompleted: If `true` buffered elements will be flushed when the source completes. Default `true`.
+     - parameter flushOnError: If `true` buffered elements will be flushed when the source errors. Default `true`.
+     - returns: The observable sequence which is paused and resumed based upon the predicate result.
+     */
+    public func pausableBuffered(_ predicate: @escaping (Element) -> Bool, limit: Int? = 1, flushOnCompleted: Bool = true, flushOnError: Bool = true) -> Observable<Element> {
+        return Observable<Element>.create { observer in
+            var buffer: [Element] = []
+            if let limit = limit {
+                buffer.reserveCapacity(limit)
+            }
+
+            var paused = false
+            var flushIndex = 0
+            let lock = NSRecursiveLock()
+
+            let flush = {
+                while flushIndex < buffer.count {
+                    flushIndex += 1
+                    observer.onNext(buffer[flushIndex - 1])
+                }
+                if buffer.count > 0 {
+                    flushIndex = 0
+                    buffer.removeAll(keepingCapacity: limit != nil)
+                }
+            }
+
+            return self.subscribe { event in
+                lock.lock(); defer { lock.unlock() }
+                switch event {
+                case .next(let element):
+                    let wasPaused = paused
+                    paused = !predicate(element)
+                    if paused {
+                        buffer.append(element)
+                        if let limit = limit, buffer.count > limit {
+                            buffer.remove(at: 0)
+                        }
+                    } else {
+                        if wasPaused && buffer.count > 0 {
+                            flush()
+                        }
+                        observer.onNext(element)
+                    }
+                case .completed:
+                    if flushOnCompleted { flush() }
+                    observer.onCompleted()
+
+                case .error(let error):
+                    if flushOnError { flush() }
+                    observer.onError(error)
+                }
+            }
+        }
+    }
 }

@@ -276,4 +276,144 @@ class PausableBufferedTests: XCTestCase {
             Subscription(200, 500),
             ])
     }
+
+    // MARK: - with predicate
+
+    func testPredicatePaused() {
+        let underlying = scheduler.createHotObservable([
+            .next(150, 1),
+            .next(210, 2),
+            .next(230, 3),
+            .next(301, 4),
+            .next(350, 5),
+            .next(399, 6),
+            .completed(500)
+            ])
+
+        let res = scheduler.start(disposed: 1000) {
+            underlying.pausableBuffered({ (element) -> Bool in
+                switch element {
+                case 2:
+                    return false
+                default:
+                    return true
+                }
+            })
+        }
+
+        XCTAssertEqual(res.events, [
+            .next(230, 2),
+            .next(230, 3),
+            .next(301, 4),
+            .next(350, 5),
+            .next(399, 6),
+            .completed(500)
+            ])
+
+        XCTAssertEqual(underlying.subscriptions, [
+            Subscription(200, 500)
+            ])
+    }
+
+    func testPredicatePausedLimit() {
+        let underlying = scheduler.createHotObservable([
+            .next(150, 1),
+            .next(210, 2),
+            .next(230, 3),
+            .next(301, 4),
+            .next(350, 5),
+            .next(399, 6),
+            .completed(500)
+            ])
+
+        let res = scheduler.start(disposed: 1000) {
+            underlying.pausableBuffered({ (element) -> Bool in
+                switch element {
+                case (2..<6):
+                    return false
+                default:
+                    return true
+                }
+            }, limit: 2)
+        }
+
+        XCTAssertEqual(res.events, [
+            .next(399, 4),
+            .next(399, 5),
+            .next(399, 6),
+            .completed(500)
+            ])
+
+        XCTAssertEqual(underlying.subscriptions, [
+            Subscription(200, 500)
+            ])
+    }
+
+    func testPredicatePausedNoLimit() {
+        let underlying = scheduler.createHotObservable([
+            .next(150, 1),
+            .next(210, 2),
+            .next(230, 3),
+            .next(301, 4),
+            .next(350, 5),
+            .next(399, 6),
+            .completed(500)
+            ])
+
+        let res = scheduler.start(disposed: 1000) {
+            underlying.pausableBuffered({ (element) -> Bool in
+                switch element {
+                case (2..<6):
+                    return false
+                default:
+                    return true
+                }
+            }, limit: nil)
+        }
+
+        XCTAssertEqual(res.events, [
+            .next(399, 2),
+            .next(399, 3),
+            .next(399, 4),
+            .next(399, 5),
+            .next(399, 6),
+            .completed(500)
+            ])
+
+        XCTAssertEqual(underlying.subscriptions, [
+            Subscription(200, 500)
+            ])
+    }
+
+    func testPredicatePausedError() {
+        let underlying = scheduler.createHotObservable([
+            .next(150, 1),
+            .next(210, 2),
+            .error(230, testError),
+            .next(301, 4),
+            .next(350, 5),
+            .next(399, 6),
+            .completed(500)
+            ])
+
+        let res = scheduler.start(disposed: 1000) {
+            underlying.pausableBuffered({ (element) -> Bool in
+                switch element {
+                case (4...):
+                    return false
+                default:
+                    return true
+                }
+            })
+        }
+
+        XCTAssertEqual(res.events, [
+            .next(210, 2),
+            .error(230, testError)
+            ])
+
+        XCTAssertEqual(underlying.subscriptions, [
+            Subscription(200, 230)
+            ])
+    }
 }
